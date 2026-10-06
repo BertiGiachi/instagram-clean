@@ -180,7 +180,7 @@
 
         if (!url) return false;
 
-        return ['/', '/following/'].includes(
+        return ['/', '/?variant=following/'].includes(
             normalizedPath(url.pathname)
         );
     }
@@ -788,7 +788,7 @@
 
                 win.location.replace(
                     win.location.origin +
-                    '/following/'
+                    '/?variant=following/'
                 );
 
                 return true;
@@ -810,7 +810,7 @@
 
                 win.location.replace(
                     win.location.origin +
-                    '/following/'
+                    '/?variant=following/'
                 );
 
                 return true;
@@ -1459,7 +1459,7 @@
 
     function isHome(value) {
         const url = instagramURL(value);
-        return !!url && ['/', '/following/'].includes(normalizedPath(url.pathname));
+        return !!url && ['/', '/?variant=following/'].includes(normalizedPath(url.pathname));
     }
 
     function start(win, config = CONFIG) {
