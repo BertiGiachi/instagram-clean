@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Instagram Clean
 // @namespace    urn:instagram-clean
-// @version      1.1.0
+// @version      1.0.0
 // @description  Locally hide Reels and optional recommendation surfaces on Instagram.
 // @match        https://www.instagram.com/*
 // @match        https://instagram.com/*
@@ -16,12 +16,10 @@
 
     // EDIT HERE, then reinstall the file and reload Instagram. No build needed.
     const CONFIG = {
-        blockReels: false,
-        hideReelsIcon: true,        // NEW: nasconde sempre l'icona Reels nella navigazione
-        blockExplore: false,         // blocca le sotto-route di Explore (tag, luoghi, ecc.)
-        exploreSearchOnly: true,    // NEW: in Explore resta visibile solo la ricerca
-        removeSuggestedPosts: true,
-        removeSuggestedAccounts: true,
+        blockReels: true,
+        blockExplore: true,
+        removeSuggestedPosts: false,
+        removeSuggestedAccounts: false,
         removeStories: false,
         feedPostLimit: null,
         debug: false,
@@ -36,10 +34,9 @@
         unit: 'article, [role="article"], section, [role="region"], li, [role="listitem"]',
         post: 'article, [role="article"]',
         protected: 'nav, [role="navigation"], [role="dialog"], [role="textbox"], [contenteditable="true"]',
-        nav: 'nav, [role="navigation"]',
         labels: {
             reels: /^(?:reels?|watch reels?|open reels?|suggested reels|reels for you|trending reels|recommended reels)$/i,
-            explore: /^(?:explore|esplora)$/i,
+            explore: /^explore$/i,
             posts: /^(?:suggested posts?|recommended posts?)$/i,
             accounts: /^(?:suggested for you|suggested accounts|discover people|people you may know)$/i,
             stories: /^stories$/i
@@ -48,7 +45,6 @@
     const MARK = 'data-instagram-clean-hidden';
     const LIMIT = 'data-instagram-clean-limit';
     const OWN = 'data-instagram-clean-owned';
-    const EXPLORE_ATTR = 'data-instagram-clean-explore';
 
     function normalizedPath(path) {
         try { path = decodeURIComponent(path); } catch { /* Keep malformed escapes literal. */ }
@@ -75,24 +71,17 @@
                 /^(reel|reels)$/.test(parts[1]));
     }
 
-    // searchOnly: /explore/ stessa resta accessibile (la griglia viene nascosta via CSS).
-    function isExploreURL(value, base, searchOnly = CONFIG.exploreSearchOnly) {
+    function isExploreURL(value, base) {
         const url = instagramURL(value, base);
         if (!url) return false;
         const path = normalizedPath(url.pathname);
-        if (path === '/explore/') return !searchOnly;
         // Account search must remain available, including the Explore search route.
         return path.startsWith('/explore/') && !path.startsWith('/explore/search/');
     }
 
-    function isExploreSearchPath(path) {
-        const p = normalizedPath(path);
-        return p === '/explore/' || p === '/explore/search/';
-    }
-
     function blockedURL(value, config = CONFIG, base) {
         if (config.blockReels && isReelURL(value, base)) return 'reels';
-        if (config.blockExplore && isExploreURL(value, base, config.exploreSearchOnly)) return 'explore';
+        if (config.blockExplore && isExploreURL(value, base)) return 'explore';
         const url = instagramURL(value, base);
         if (config.removeStories && url && normalizedPath(url.pathname).startsWith('/stories/')) return 'stories';
         return null;
@@ -105,17 +94,9 @@
     }
 
     function enabled(kind, config) {
-        return !!({ reels: config.blockReels,
-            // Con exploreSearchOnly il pulsante Explore deve restare utilizzabile.
-            explore: config.blockExplore && !config.exploreSearchOnly,
+        return !!({ reels: config.blockReels, explore: config.blockExplore,
             posts: config.removeSuggestedPosts, accounts: config.removeSuggestedAccounts,
             stories: config.removeStories })[kind];
-    }
-
-    function controlLabel(element) {
-        const icon = element.querySelector('svg[aria-label], svg title');
-        return element.getAttribute('aria-label') ||
-            icon?.getAttribute('aria-label') || icon?.textContent || element.textContent;
     }
 
     function controlKind(element, config, base) {
@@ -125,21 +106,11 @@
             // A safe explicit destination beats an ambiguous caption/icon.
             return null;
         }
-        const kind = labelKind(controlLabel(element));
+        const icon = element.querySelector('svg[aria-label], svg title');
+        const label = element.getAttribute('aria-label') ||
+            icon?.getAttribute('aria-label') || icon?.textContent || element.textContent;
+        const kind = labelKind(label);
         return enabled(kind, config) ? kind : null;
-    }
-
-    // Icona/tab Reels nella barra di navigazione (indipendente da blockReels).
-    function isReelsNavControl(element, base) {
-        const inNav = !!element.closest(RULES.nav);
-        if (element.hasAttribute('href')) {
-            const href = element.getAttribute('href');
-            if (!isReelURL(href, base)) return false;
-            const url = instagramURL(href, base);
-            const exactTab = url && ['/reels/', '/reel/'].includes(normalizedPath(url.pathname));
-            return inNav || exactTab;
-        }
-        return inNav && labelKind(controlLabel(element)) === 'reels';
     }
 
     function select(root, selector) {
@@ -192,46 +163,18 @@
 
         const style = doc.createElement('style');
         style.setAttribute(OWN, '');
-        const origins = ['', 'https://www.instagram.com', 'https://instagram.com'];
         const paths = [];
         if (config.blockReels) paths.push('/reel', '/reels');
-        if (config.blockExplore && !config.exploreSearchOnly) paths.push('/explore');
+        if (config.blockExplore) paths.push('/explore');
         if (config.removeStories) paths.push('/stories');
-        const earlyList = paths.flatMap(path => origins.flatMap(origin =>
+        const early = paths.flatMap(path => ['', 'https://www.instagram.com', 'https://instagram.com'].flatMap(origin =>
             [`a[href="${origin}${path}"]`, `a[href^="${origin}${path}/"]`, `a[href^="${origin}${path}?"]`]
-        ));
-        // Explore: blocca le sotto-route ma lascia il link /explore/ (tab ricerca).
-        if (config.blockExplore && config.exploreSearchOnly) {
-            for (const o of origins) earlyList.push(`a[href^="${o}/explore/"]:not([href="${o}/explore/"])`);
-        }
-        // Icona Reels nella navigazione, sempre nascosta se hideReelsIcon.
-        if (config.hideReelsIcon) {
-            for (const o of origins) earlyList.push(
-                `a[href="${o}/reels"]`, `a[href="${o}/reels/"]`,
-                `nav a[href^="${o}/reel"]`, `[role="navigation"] a[href^="${o}/reel"]`
-            );
-        }
-        const early = earlyList.map(selector => selector + ':not([href*="/explore/search"])');
-        // Nella schermata Explore nasconde la griglia (post/reel), lasciando la ricerca.
-        const exploreGrid = config.exploreSearchOnly ? [
-            'a[href^="/p/"]', 'a[href^="/reel"]', 'a[href^="/tv/"]',
-            'a[href*="instagram.com/p/"]', 'a[href*="instagram.com/reel"]'
-        ].map(s => `html[${EXPLORE_ATTR}] ${s}`) : [];
+        )).map(selector => selector + ':not([href*="/explore/search"])');
         style.textContent = `[${MARK}], [${LIMIT}] { display: none !important; }\n` +
-            (early.length ? early.join(',\n') + ' { display: none !important; }\n' : '') +
-            (exploreGrid.length ? exploreGrid.join(',\n') + ' { display: none !important; }' : '');
+            (early.length ? early.join(',\n') + ' { display: none !important; }' : '');
 
         function mountStyle() {
             if (!style.isConnected && doc.documentElement) doc.documentElement.append(style);
-        }
-
-        function syncExploreAttr() {
-            const root = doc.documentElement;
-            if (!root) return;
-            const on = config.exploreSearchOnly && isExploreSearchPath(win.location.pathname);
-            if (on !== root.hasAttribute(EXPLORE_ATTR)) {
-                if (on) root.setAttribute(EXPLORE_ATTR, ''); else root.removeAttribute(EXPLORE_ATTR);
-            }
         }
 
         function mark(element, attribute, hide) {
@@ -255,7 +198,6 @@
         }
 
         function handleNavigation() {
-            syncExploreAttr();
             const kind = blockedURL(win.location.href, config);
             if (kind) {
                 if (!redirecting) {
@@ -287,13 +229,6 @@
             const path = normalizedPath(win.location.pathname);
             const protectedRoute = path.startsWith('/direct/') || path.startsWith('/stories/') || path.startsWith('/accounts/');
             for (const control of select(root, RULES.control)) {
-                // Icona Reels nella navigazione: sempre nascosta con hideReelsIcon.
-                if (config.hideReelsIcon && isReelsNavControl(control, win.location.href)) {
-                    hidden.add(control);
-                    const item = control.closest('li, [role="listitem"]');
-                    if (item && item.closest(RULES.nav) && item.querySelectorAll(RULES.control).length === 1) hidden.add(item);
-                    continue;
-                }
                 const kind = controlKind(control, config, win.location.href);
                 if (!kind) continue;
                 // Optional content labels do not disable unrelated action buttons.
