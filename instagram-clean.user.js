@@ -18,8 +18,8 @@
     const CONFIG = {
         blockReels: true,
         blockExplore: true,
-        removeSuggestedPosts: false,
-        removeSuggestedAccounts: false,
+        removeSuggestedPosts: true,
+        removeSuggestedAccounts: true,
         removeStories: false,
         feedPostLimit: null,
         debug: false,
