@@ -16,7 +16,9 @@
 
     // EDIT HERE, then reinstall the file and reload Instagram. No build needed.
     const CONFIG = {
-        blockReels: true,
+        blockReels: false,
+        hideReelsNavigation: true,
+        forceFollowingOnOpen: true,
         blockExplore: false,
         removeSuggestedPosts: true,
         removeSuggestedAccounts: true,
@@ -160,6 +162,36 @@ function findExploreRecommendationContainer(element) {
         const kind = labelKind(label);
         return enabled(kind, config) ? kind : null;
     }
+    function isReelsNavigationControl(element, base) {
+    if (!element) return false;
+
+    const navigation = element.closest('nav, [role="navigation"]');
+    if (!navigation) return false;
+
+    if (element.hasAttribute('href')) {
+        const url = instagramURL(
+            element.getAttribute('href'),
+            base
+        );
+
+        if (url) {
+            const path = normalizedPath(url.pathname);
+
+            if (path === '/reels/' || path === '/reel/') {
+                return true;
+            }
+        }
+    }
+
+    const icon = element.querySelector('svg[aria-label], svg title');
+    const label =
+        element.getAttribute('aria-label') ||
+        icon?.getAttribute('aria-label') ||
+        icon?.textContent ||
+        element.textContent;
+
+    return labelKind(label) === 'reels';
+}
 
     function select(root, selector) {
         return [...(root.matches?.(selector) ? [root] : []), ...root.querySelectorAll(selector)];
@@ -202,6 +234,7 @@ function findExploreRecommendationContainer(element) {
         const log = message => { if (config.debug) win.console.info('[InstagramClean] ' + message); };
         let route = win.location.href;
         let redirecting = false;
+        let initialFollowingRedirectDone = false;
         const seenPosts = new Set();
         const max = Number.isInteger(config.feedPostLimit) && config.feedPostLimit > 0 ? config.feedPostLimit : null;
         const pending = new Set();
@@ -244,8 +277,25 @@ function findExploreRecommendationContainer(element) {
             doc.body.append(toast);
             win.setTimeout(() => { toast.remove(); toast = null; }, 1500);
         }
-
+        function forceFollowingOnInitialOpen() {
+            if (!config.forceFollowingOnOpen) return false;
+            if (initialFollowingRedirectDone) return false;
+        
+            const path = normalizedPath(win.location.pathname);
+        
+            if (path !== '/') return false;
+        
+            initialFollowingRedirectDone = true;
+        
+            win.location.replace(
+                win.location.origin + '/following/'
+            );
+        
+            return true;
+        }
         function handleNavigation() {
+            if (forceFollowingOnInitialOpen()) return;
+        
             const kind = blockedURL(win.location.href, config);
             if (kind) {
                 if (!redirecting) {
@@ -289,6 +339,14 @@ function findExploreRecommendationContainer(element) {
                 }
             }
             for (const control of select(root, RULES.control)) {
+                if (
+                    config.hideReelsNavigation &&
+                    isReelsNavigationControl(control, win.location.href)
+                ) {
+                    hidden.add(control);
+                    continue;
+                }
+            
                 const kind = controlKind(control, config, win.location.href);
                 if (!kind) continue;
                 // Optional content labels do not disable unrelated action buttons.
