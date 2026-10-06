@@ -22,7 +22,7 @@
 
         // true  = utilizza esclusivamente il feed "Seguiti"
         // false = comportamento normale del feed
-        followingOnly: true,
+        followingOnly: false,
 
         // true = nasconde l'icona/tab dei Reel
         // I Reel rimangono comunque accessibili.
