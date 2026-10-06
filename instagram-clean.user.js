@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Instagram Clean
 // @namespace    urn:instagram-clean
-// @version      1.1.0
+// @version      1.0.0
 // @description  Locally hide Reels and optional recommendation surfaces on Instagram.
 // @match        https://www.instagram.com/*
 // @match        https://instagram.com/*
@@ -16,12 +16,10 @@
 
     // EDIT HERE, then reinstall the file and reload Instagram. No build needed.
     const CONFIG = {
-        blockReels: false,
-        hideReelsNavigation: true,
-        forceFollowingOnOpen: true,
-        blockExplore: false,
-        removeSuggestedPosts: true,
-        removeSuggestedAccounts: true,
+        blockReels: true,
+        blockExplore: true,
+        removeSuggestedPosts: false,
+        removeSuggestedAccounts: false,
         removeStories: false,
         feedPostLimit: null,
         debug: false,
@@ -74,60 +72,12 @@
     }
 
     function isExploreURL(value, base) {
-    const url = instagramURL(value, base);
-    if (!url) return false;
-
-    const path = normalizedPath(url.pathname);
-
-    // The main Explore page remains accessible so the search UI can be used.
-    // Account search also remains accessible.
-    if (path === '/explore/' || path.startsWith('/explore/search/')) return false;
-
-    // Other Explore surfaces (for example tags/locations) remain blocked.
-    return path.startsWith('/explore/');
-}
-
-function isExploreHomeURL(value, base) {
-    const url = instagramURL(value, base);
-    if (!url) return false;
-
-    return normalizedPath(url.pathname) === '/explore/';
-}
-
-function isExploreRecommendationURL(value, base) {
-    const url = instagramURL(value, base);
-    if (!url) return false;
-
-    const path = normalizedPath(url.pathname);
-
-    // Ordinary Explore tiles.
-    if (/^\/p\/[^/]+\/$/i.test(path)) return true;
-
-    // Reel tiles in Explore.
-    return isReelURL(url.href, base);
-}
-
-function findExploreRecommendationContainer(element) {
-    if (!element || element.closest(RULES.protected)) return null;
-
-    // Prefer the smallest semantic tile/container.
-    const unit = element.closest(
-        'article, [role="article"], li, [role="listitem"], [role="gridcell"]'
-    );
-
-    if (unit) {
-        // Never hide a container containing the search UI.
-        if (!unit.querySelector(
-            'input, textarea, [role="textbox"], [contenteditable="true"], nav, [role="navigation"]'
-        )) {
-            return unit;
-        }
+        const url = instagramURL(value, base);
+        if (!url) return false;
+        const path = normalizedPath(url.pathname);
+        // Account search must remain available, including the Explore search route.
+        return path.startsWith('/explore/') && !path.startsWith('/explore/search/');
     }
-
-    // Fallback: hide only the actual link rather than a potentially large
-    // parent container containing the search interface.
-    return element.closest('a[href]') || null;
-}
 
     function blockedURL(value, config = CONFIG, base) {
         if (config.blockReels && isReelURL(value, base)) return 'reels';
@@ -162,36 +112,6 @@ function findExploreRecommendationContainer(element) {
         const kind = labelKind(label);
         return enabled(kind, config) ? kind : null;
     }
-    function isReelsNavigationControl(element, base) {
-    if (!element) return false;
-
-    const navigation = element.closest('nav, [role="navigation"]');
-    if (!navigation) return false;
-
-    if (element.hasAttribute('href')) {
-        const url = instagramURL(
-            element.getAttribute('href'),
-            base
-        );
-
-        if (url) {
-            const path = normalizedPath(url.pathname);
-
-            if (path === '/reels/' || path === '/reel/') {
-                return true;
-            }
-        }
-    }
-
-    const icon = element.querySelector('svg[aria-label], svg title');
-    const label =
-        element.getAttribute('aria-label') ||
-        icon?.getAttribute('aria-label') ||
-        icon?.textContent ||
-        element.textContent;
-
-    return labelKind(label) === 'reels';
-}
 
     function select(root, selector) {
         return [...(root.matches?.(selector) ? [root] : []), ...root.querySelectorAll(selector)];
@@ -234,7 +154,6 @@ function findExploreRecommendationContainer(element) {
         const log = message => { if (config.debug) win.console.info('[InstagramClean] ' + message); };
         let route = win.location.href;
         let redirecting = false;
-        let initialFollowingRedirectDone = false;
         const seenPosts = new Set();
         const max = Number.isInteger(config.feedPostLimit) && config.feedPostLimit > 0 ? config.feedPostLimit : null;
         const pending = new Set();
@@ -277,25 +196,8 @@ function findExploreRecommendationContainer(element) {
             doc.body.append(toast);
             win.setTimeout(() => { toast.remove(); toast = null; }, 1500);
         }
-        function forceFollowingOnInitialOpen() {
-            if (!config.forceFollowingOnOpen) return false;
-            if (initialFollowingRedirectDone) return false;
-        
-            const path = normalizedPath(win.location.pathname);
-        
-            if (path !== '/') return false;
-        
-            initialFollowingRedirectDone = true;
-        
-            win.location.replace(
-                win.location.origin + '/following/'
-            );
-        
-            return true;
-        }
+
         function handleNavigation() {
-            if (forceFollowingOnInitialOpen()) return;
-        
             const kind = blockedURL(win.location.href, config);
             if (kind) {
                 if (!redirecting) {
@@ -326,27 +228,7 @@ function findExploreRecommendationContainer(element) {
             const home = isHome(win.location.href);
             const path = normalizedPath(win.location.pathname);
             const protectedRoute = path.startsWith('/direct/') || path.startsWith('/stories/') || path.startsWith('/accounts/');
-            const exploreHome = isExploreHomeURL(win.location.href);
-    
-            if (exploreHome && !protectedRoute) {
-                for (const control of select(root, 'a[href]')) {
-                    if (!isExploreRecommendationURL(control.getAttribute('href'), win.location.href)) {
-                        continue;
-                    }
-            
-                    const unit = findExploreRecommendationContainer(control);
-                    if (unit) hidden.add(unit);
-                }
-            }
             for (const control of select(root, RULES.control)) {
-                if (
-                    config.hideReelsNavigation &&
-                    isReelsNavigationControl(control, win.location.href)
-                ) {
-                    hidden.add(control);
-                    continue;
-                }
-            
                 const kind = controlKind(control, config, win.location.href);
                 if (!kind) continue;
                 // Optional content labels do not disable unrelated action buttons.
